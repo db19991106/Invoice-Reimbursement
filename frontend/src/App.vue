@@ -1,29 +1,5 @@
 <template>
-  <el-container class="app-container">
-    <el-header class="app-header">
-      <div class="header-content">
-        <h1 class="title">财务报销智能审核系统</h1>
-        <el-menu
-          mode="horizontal"
-          :router="true"
-          :default-active="$route.path"
-          class="header-menu"
-        >
-          <el-menu-item index="/">
-            <el-icon><DataAnalysis /></el-icon>
-            仪表盘
-          </el-menu-item>
-          <el-menu-item index="/upload">
-            <el-icon><Upload /></el-icon>
-            上传发票
-          </el-menu-item>
-        </el-menu>
-      </div>
-    </el-header>
-    <el-main class="app-main">
-      <router-view />
-    </el-main>
-  </el-container>
+  <router-view />
 </template>
 
 <script setup lang="ts">

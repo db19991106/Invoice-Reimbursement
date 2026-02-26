@@ -30,6 +30,7 @@ class Invoice(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))  # 上传用户ID
     file_path = Column(String(255), nullable=False)
     invoice_code = Column(String(50))
     invoice_no = Column(String(50))
@@ -56,7 +57,9 @@ class Invoice(Base):
     created_at = Column(DateTime, default=datetime.now)
     
     employee = relationship("Employee", back_populates="invoices")
+    user = relationship("User", back_populates="invoices")
     audit_record = relationship("AuditRecord", back_populates="invoice", uselist=False)
+    modify_records = relationship("InvoiceModifyRecord", back_populates="invoice")
 
 class AuditRecord(Base):
     __tablename__ = "audit_records"
@@ -83,7 +86,7 @@ class AuditRecord(Base):
 
 
 class Auditor(Base):
-    """审核人账号"""
+    """审核人账号（管理员/审核员）"""
     __tablename__ = "auditors"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -97,6 +100,40 @@ class Auditor(Base):
     last_login = Column(DateTime)
     
     audit_records = relationship("AuditRecord", back_populates="auditor")
+
+
+class User(Base):
+    """普通用户账号"""
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    name = Column(String(50), nullable=False)
+    email = Column(String(100))
+    phone = Column(String(20))
+    department = Column(String(100))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    last_login = Column(DateTime)
+    
+    invoices = relationship("Invoice", back_populates="user")
+
+
+class InvoiceModifyRecord(Base):
+    """发票修改记录"""
+    __tablename__ = "invoice_modify_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    invoice_id = Column(Integer, ForeignKey("invoices.id"))
+    user_id = Column(Integer, ForeignKey("auditors.id"))  # 修改人ID
+    user_name = Column(String(50))  # 修改人名称
+    old_data = Column(Text)  # 修改前的数据
+    new_data = Column(Text)  # 修改后的数据
+    modify_reason = Column(Text)  # 修改原因
+    created_at = Column(DateTime, default=datetime.now)
+    
+    invoice = relationship("Invoice", back_populates="modify_records")
 
 def init_db():
     Base.metadata.create_all(bind=engine)

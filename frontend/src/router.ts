@@ -8,18 +8,31 @@ import Upload from '@/views/AdminUpload.vue'
 import Statistics from '@/views/Statistics.vue'
 import EmployeeManagement from '@/views/EmployeeManagement.vue'
 import AuditorManagement from '@/views/AuditorManagement.vue'
+import UserManagement from '@/views/UserManagement.vue'
+import UserLogin from '@/views/UserLogin.vue'
+import UserLayout from '@/views/UserLayout.vue'
+import UserDashboard from '@/views/UserDashboard.vue'
+import UserUpload from '@/views/UserUpload.vue'
+import UserInvoices from '@/views/UserInvoices.vue'
+import UserInvoiceDetail from '@/views/UserInvoiceDetail.vue'
 
 const routes = [
   {
     path: '/login',
     name: 'Login',
     component: Login,
-    meta: { requiresAuth: false }
+    meta: { requiresAuth: false, userType: 'admin' }
+  },
+  {
+    path: '/user/login',
+    name: 'UserLogin',
+    component: UserLogin,
+    meta: { requiresAuth: false, userType: 'user' }
   },
   {
     path: '/',
     component: Layout,
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, userType: 'admin' },
     children: [
       {
         path: '',
@@ -57,6 +70,39 @@ const routes = [
         name: 'AuditorManagement',
         component: AuditorManagement,
         meta: { title: '审核员管理', requiresAdmin: true }
+      },
+      {
+        path: 'users',
+        name: 'UserManagement',
+        component: UserManagement,
+        meta: { title: '用户管理', requiresAdmin: true }
+      }
+    ]
+  },
+  {
+    path: '/user',
+    component: UserLayout,
+    meta: { requiresAuth: true, userType: 'user' },
+    children: [
+      {
+        path: '',
+        name: 'UserDashboard',
+        component: UserDashboard
+      },
+      {
+        path: 'upload',
+        name: 'UserUpload',
+        component: UserUpload
+      },
+      {
+        path: 'invoices',
+        name: 'UserInvoices',
+        component: UserInvoices
+      },
+      {
+        path: 'invoices/:id',
+        name: 'UserInvoiceDetail',
+        component: UserInvoiceDetail
       }
     ]
   }
@@ -67,27 +113,45 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫
 router.beforeEach((to, from, next) => {
   const auditorId = localStorage.getItem('auditor_id')
   const auditorRole = localStorage.getItem('auditor_role')
+  const userId = localStorage.getItem('user_id')
   
-  // 检查是否需要登录
-  if (to.meta.requiresAuth !== false && !auditorId) {
-    next('/login')
-    return
+  const userType = to.meta.userType as string
+  
+  if (userType === 'admin') {
+    if (to.meta.requiresAuth !== false && !auditorId) {
+      next('/user/login')
+      return
+    }
+    
+    if (to.path === '/login' && auditorId) {
+      next('/')
+      return
+    }
+    
+    if (to.meta.requiresAdmin && auditorRole !== 'admin') {
+      next('/')
+      return
+    }
   }
   
-  // 已登录不允许访问登录页
-  if (to.path === '/login' && auditorId) {
-    next('/')
-    return
-  }
-  
-  // 检查是否需要管理员权限
-  if (to.meta.requiresAdmin && auditorRole !== 'admin') {
-    next('/')
-    return
+  if (userType === 'user') {
+    if (to.meta.requiresAuth !== false && !userId) {
+      next('/user/login')
+      return
+    }
+    
+    if (to.path === '/user/login' && userId) {
+      next('/user')
+      return
+    }
+    
+    if (auditorId) {
+      next('/')
+      return
+    }
   }
   
   next()

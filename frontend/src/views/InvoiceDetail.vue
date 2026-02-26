@@ -38,6 +38,16 @@
                 <el-button type="success" @click="approveInvoice">通过审核</el-button>
                 <el-button type="danger" @click="showRejectDialog">驳回</el-button>
               </div>
+              <div class="status-actions" v-if="auditorRole === 'admin'">
+                <el-button type="info" text @click="showModifyHistory">
+                  <el-icon><Clock /></el-icon>
+                  修改记录
+                </el-button>
+                <el-button type="danger" text @click="confirmDelete">
+                  <el-icon><Delete /></el-icon>
+                  删除
+                </el-button>
+              </div>
             </div>
             <div class="risk-info" v-if="auditResult">
               <span>风险等级：{{ auditResult.risk_level }}</span>
@@ -249,6 +259,27 @@
         <el-button type="danger" @click="rejectInvoice">确认驳回</el-button>
       </template>
     </el-dialog>
+    
+    <!-- 修改记录弹窗 -->
+    <el-dialog v-model="modifyHistoryVisible" title="修改记录" width="600px">
+      <el-timeline v-if="modifyRecords.length > 0">
+        <el-timeline-item
+          v-for="record in modifyRecords"
+          :key="record.id"
+          :timestamp="formatDate(record.created_at)"
+          placement="top"
+        >
+          <div class="modify-record">
+            <p><strong>{{ record.user_name }}</strong> 修改了发票信息</p>
+            <p v-if="record.modify_reason">修改原因: {{ record.modify_reason }}</p>
+            <div v-if="record.old_data && record.new_data" class="modify-details">
+              <el-divider>修改内容</el-divider>
+            </div>
+          </div>
+        </el-timeline-item>
+      </el-timeline>
+      <el-empty v-else description="暂无修改记录" />
+    </el-dialog>
   </div>
 </template>
 
@@ -256,13 +287,14 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit } from '@element-plus/icons-vue'
+import { Edit, Clock, Delete } from '@element-plus/icons-vue'
 import axios from 'axios'
 
 const router = useRouter()
 const route = useRoute()
 
 const auditorId = localStorage.getItem('auditor_id')
+const auditorRole = localStorage.getItem('auditor_role')
 const invoiceId = route.params.id as string
 
 const loading = ref(false)
@@ -441,6 +473,41 @@ const rejectInvoice = async () => {
     router.back()
   } catch (e: any) {
     ElMessage.error(e.response?.data?.detail || '操作失败')
+  }
+}
+
+const confirmDelete = async () => {
+  try {
+    await ElMessageBox.confirm('确定要删除该发票吗？此操作不可恢复！', '警告', { 
+      type: 'error',
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消'
+    })
+    
+    await axios.delete(`/api/invoices/${invoiceId}`, {
+      params: { auditor_id: auditorId }
+    })
+    ElMessage.success('发票已删除')
+    router.push('/invoices')
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error(e.response?.data?.detail || '删除失败')
+    }
+  }
+}
+
+const modifyHistoryVisible = ref(false)
+const modifyRecords = ref<any[]>([])
+
+const showModifyHistory = async () => {
+  modifyHistoryVisible.value = true
+  try {
+    const res = await axios.get(`/api/invoices/${invoiceId}/modify-history`, {
+      params: { auditor_id: auditorId }
+    })
+    modifyRecords.value = res.data
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || '获取修改记录失败')
   }
 }
 

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from pathlib import Path
 import json
 
-from backend.database import get_db, init_db, Invoice, AuditRecord, Auditor
+from backend.database import get_db, init_db, Invoice, AuditRecord, Auditor, InvoiceModifyRecord
 from backend.models.schemas import (
     AuditorLogin,
     AuditorCreate,
@@ -209,35 +209,79 @@ def update_invoice(
     
     logger.info(f"审核人 {auditor.username} 修改发票信息: invoice_id={invoice_id}")
     
+    old_data = {
+        "invoice_code": invoice.invoice_code,
+        "invoice_no": invoice.invoice_no,
+        "amount": invoice.amount,
+        "tax_amount": invoice.tax_amount,
+        "total_amount": invoice.total_amount,
+        "date": invoice.date,
+        "seller_name": invoice.seller_name,
+        "seller_tax_id": invoice.seller_tax_id,
+        "buyer_name": invoice.buyer_name,
+        "buyer_tax_id": invoice.buyer_tax_id,
+        "expense_type": invoice.expense_type,
+        "destination_city": invoice.destination_city,
+        "person_count": invoice.person_count,
+        "trip_days": invoice.trip_days
+    }
+    
+    new_data = {}
+    
     # 更新发票信息
     if update_data.invoice_code is not None:
         invoice.invoice_code = update_data.invoice_code
+        new_data["invoice_code"] = update_data.invoice_code
     if update_data.invoice_no is not None:
         invoice.invoice_no = update_data.invoice_no
+        new_data["invoice_no"] = update_data.invoice_no
     if update_data.amount is not None:
         invoice.amount = update_data.amount
+        new_data["amount"] = update_data.amount
     if update_data.tax_amount is not None:
         invoice.tax_amount = update_data.tax_amount
+        new_data["tax_amount"] = update_data.tax_amount
     if update_data.total_amount is not None:
         invoice.total_amount = update_data.total_amount
+        new_data["total_amount"] = update_data.total_amount
     if update_data.date is not None:
         invoice.date = update_data.date
+        new_data["date"] = update_data.date
     if update_data.seller_name is not None:
         invoice.seller_name = update_data.seller_name
+        new_data["seller_name"] = update_data.seller_name
     if update_data.seller_tax_id is not None:
         invoice.seller_tax_id = update_data.seller_tax_id
+        new_data["seller_tax_id"] = update_data.seller_tax_id
     if update_data.buyer_name is not None:
         invoice.buyer_name = update_data.buyer_name
+        new_data["buyer_name"] = update_data.buyer_name
     if update_data.buyer_tax_id is not None:
         invoice.buyer_tax_id = update_data.buyer_tax_id
+        new_data["buyer_tax_id"] = update_data.buyer_tax_id
     if update_data.expense_type is not None:
         invoice.expense_type = update_data.expense_type
+        new_data["expense_type"] = update_data.expense_type
     if update_data.destination_city is not None:
         invoice.destination_city = update_data.destination_city
+        new_data["destination_city"] = update_data.destination_city
     if update_data.person_count is not None:
         invoice.person_count = update_data.person_count
+        new_data["person_count"] = update_data.person_count
     if update_data.trip_days is not None:
         invoice.trip_days = update_data.trip_days
+        new_data["trip_days"] = update_data.trip_days
+    
+    if new_data:
+        modify_record = InvoiceModifyRecord(
+            invoice_id=invoice_id,
+            user_id=auditor.id,
+            user_name=auditor.name,
+            old_data=json.dumps(old_data, ensure_ascii=False),
+            new_data=json.dumps(new_data, ensure_ascii=False),
+            modify_reason=update_data.review_note or "信息修改"
+        )
+        db.add(modify_record)
     
     # 记录审核人
     if invoice.audit_record:
@@ -391,3 +435,105 @@ def list_auditors(
         raise HTTPException(status_code=403, detail="需要管理员权限")
     
     return auth_service.list_auditors(db)
+
+
+@router.get("/users", response_model=List[dict])
+def list_users(
+    auditor_id: int = None,
+    db: Session = Depends(get_db)
+):
+    """列出所有用户（管理员权限）"""
+    current = get_current_auditor(auditor_id, db)
+    
+    if current.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    
+    from backend.services.user_service import get_user_auth_service
+    user_service = get_user_auth_service()
+    users = user_service.list_users(db)
+    
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "name": u.name,
+            "email": u.email,
+            "phone": u.phone,
+            "department": u.department,
+            "is_active": u.is_active,
+            "created_at": u.created_at,
+            "last_login": u.last_login,
+            "invoice_count": db.query(Invoice).filter(Invoice.user_id == u.id).count()
+        }
+        for u in users
+    ]
+
+
+@router.get("/users/{user_id}/invoices", response_model=List[InvoiceResponse])
+def get_user_invoices(
+    user_id: int,
+    auditor_id: int = None,
+    db: Session = Depends(get_db)
+):
+    """获取指定用户上传的发票列表（管理员权限）"""
+    current = get_current_auditor(auditor_id, db)
+    
+    if current.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    
+    invoices = db.query(Invoice).filter(Invoice.user_id == user_id).order_by(Invoice.created_at.desc()).all()
+    return invoices
+
+
+@router.delete("/invoices/{invoice_id}")
+def delete_invoice(
+    invoice_id: int,
+    auditor_id: int = None,
+    db: Session = Depends(get_db)
+):
+    """删除发票（管理员权限）"""
+    current = get_current_auditor(auditor_id, db)
+    
+    if current.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="发票不存在")
+    
+    db.delete(invoice)
+    db.commit()
+    
+    logger.info(f"管理员 {current.username} 删除了发票: invoice_id={invoice_id}")
+    
+    return {"message": "发票删除成功"}
+
+
+@router.get("/invoices/{invoice_id}/modify-history", response_model=List[dict])
+def get_invoice_modify_history(
+    invoice_id: int,
+    auditor_id: int = None,
+    db: Session = Depends(get_db)
+):
+    """获取发票修改历史"""
+    current = get_current_auditor(auditor_id, db)
+    
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="发票不存在")
+    
+    records = db.query(InvoiceModifyRecord).filter(
+        InvoiceModifyRecord.invoice_id == invoice_id
+    ).order_by(InvoiceModifyRecord.created_at.desc()).all()
+    
+    return [
+        {
+            "id": r.id,
+            "user_name": r.user_name,
+            "old_data": r.old_data,
+            "new_data": r.new_data,
+            "modify_reason": r.modify_reason,
+            "created_at": r.created_at
+        }
+        for r in records
+    ]

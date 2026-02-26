@@ -2,7 +2,7 @@
   <el-container class="layout-container">
     <el-aside width="220px" class="sidebar">
       <div class="logo">
-        <h2>财务审核系统</h2>
+        <h2>发票上传系统</h2>
       </div>
       
       <el-menu
@@ -13,39 +13,19 @@
         active-text-color="#409EFF"
         router
       >
-        <el-menu-item index="/">
-          <el-icon><DataAnalysis /></el-icon>
-          <span>仪表盘</span>
+        <el-menu-item index="/user">
+          <el-icon><HomeFilled /></el-icon>
+          <span>首页</span>
         </el-menu-item>
         
-        <el-menu-item index="/invoices">
-          <el-icon><Document /></el-icon>
-          <span>发票管理</span>
-        </el-menu-item>
-        
-        <el-menu-item index="/upload">
+        <el-menu-item index="/user/upload">
           <el-icon><Upload /></el-icon>
           <span>上传发票</span>
         </el-menu-item>
         
-        <el-menu-item index="/statistics">
-          <el-icon><TrendCharts /></el-icon>
-          <span>统计分析</span>
-        </el-menu-item>
-        
-        <el-menu-item index="/employees">
-          <el-icon><User /></el-icon>
-          <span>员工管理</span>
-        </el-menu-item>
-        
-        <el-menu-item index="/auditors" v-if="auditorRole === 'admin'">
-          <el-icon><Setting /></el-icon>
-          <span>审核员管理</span>
-        </el-menu-item>
-        
-        <el-menu-item index="/users" v-if="auditorRole === 'admin'">
-          <el-icon><UserFilled /></el-icon>
-          <span>用户管理</span>
+        <el-menu-item index="/user/invoices">
+          <el-icon><Document /></el-icon>
+          <span>我的发票</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
@@ -59,9 +39,7 @@
           <el-dropdown @command="handleCommand">
             <span class="user-info">
               <el-icon><User /></el-icon>
-              <span>{{ auditorName }}</span>
-              <el-tag size="small" type="warning" v-if="auditorRole === 'admin'">管理员</el-tag>
-              <el-tag size="small" v-else>审核员</el-tag>
+              <span>{{ userName }}</span>
             </span>
             <template #dropdown>
               <el-dropdown-menu>
@@ -104,29 +82,24 @@
 import { ref, reactive, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DataAnalysis, Document, Upload, TrendCharts, User, Setting, UserFilled } from '@element-plus/icons-vue'
+import { HomeFilled, Upload, Document, User } from '@element-plus/icons-vue'
 import axios from 'axios'
 
 const router = useRouter()
 const route = useRoute()
 
-const auditorName = localStorage.getItem('auditor_name') || '用户'
-const auditorRole = localStorage.getItem('auditor_role') || 'auditor'
-const auditorId = localStorage.getItem('auditor_id')
+const userId = localStorage.getItem('user_id')
+const userName = localStorage.getItem('user_name') || '用户'
 
 const activeMenu = computed(() => route.path)
 
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
-    '/': '仪表盘',
-    '/invoices': '发票管理',
-    '/upload': '上传发票',
-    '/statistics': '统计分析',
-    '/employees': '员工管理',
-    '/auditors': '审核员管理',
-    '/users': '用户管理'
+    '/user': '首页',
+    '/user/upload': '上传发票',
+    '/user/invoices': '我的发票'
   }
-  return titles[route.path] || '财务审核系统'
+  return titles[route.path] || '发票上传系统'
 })
 
 const passwordDialogVisible = ref(false)
@@ -170,10 +143,11 @@ const handleCommand = (command: string) => {
       ElMessageBox.confirm('确定要退出登录吗？', '提示', {
         type: 'warning'
       }).then(() => {
-        localStorage.removeItem('auditor_id')
-        localStorage.removeItem('auditor_name')
-        localStorage.removeItem('auditor_role')
-        router.push('/login')
+        localStorage.removeItem('user_id')
+        localStorage.removeItem('user_name')
+        localStorage.removeItem('user_username')
+        localStorage.removeItem('user_department')
+        router.push('/user/login')
       }).catch(() => {})
       break
   }
@@ -184,9 +158,11 @@ const changePassword = async () => {
   if (!valid) return
   
   try {
-    await axios.post('/api/change-password', {
+    await axios.post('/api/user/change-password', {
       old_password: passwordForm.old_password,
       new_password: passwordForm.new_password
+    }, {
+      params: { user_id: userId }
     })
     ElMessage.success('密码修改成功')
     passwordDialogVisible.value = false

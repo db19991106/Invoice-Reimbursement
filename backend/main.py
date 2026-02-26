@@ -20,6 +20,7 @@ from backend.config import settings
 from backend.database import init_db, SessionLocal, Auditor
 from backend.api.upload import router as upload_router
 from backend.api.audit import router as audit_router
+from backend.api.user import router as user_router
 from backend.services.auth_service import get_auth_service
 from backend.logger_config import logger
 
@@ -62,6 +63,7 @@ app.add_middleware(
 
 app.include_router(upload_router, prefix=settings.API_PREFIX)
 app.include_router(audit_router, prefix=settings.API_PREFIX)
+app.include_router(user_router, prefix=settings.API_PREFIX)
 
 
 @app.get("/")

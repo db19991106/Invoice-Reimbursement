@@ -374,6 +374,56 @@ def get_stats(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/stats/amount")
+def get_amount_stats(db: Session = Depends(get_db)):
+    logger.info("Fetching amount stats")
+    
+    all_invoices = db.query(Invoice).filter(Invoice.total_amount.isnot(None)).all()
+    total_amount = sum(inv.total_amount or 0 for inv in all_invoices)
+    
+    approved_invoices = db.query(Invoice).filter(
+        Invoice.status == "approve",
+        Invoice.total_amount.isnot(None)
+    ).all()
+    approved_amount = sum(inv.total_amount or 0 for inv in approved_invoices)
+    
+    rejected_invoices = db.query(Invoice).filter(
+        Invoice.status == "reject",
+        Invoice.total_amount.isnot(None)
+    ).all()
+    rejected_amount = sum(inv.total_amount or 0 for inv in rejected_invoices)
+    
+    return {
+        "totalAmount": total_amount,
+        "approvedAmount": approved_amount,
+        "rejectedAmount": rejected_amount
+    }
+
+
+@router.get("/stats/type-distribution")
+def get_type_distribution(db: Session = Depends(get_db)):
+    logger.info("Fetching type distribution")
+    
+    expense_types = [
+        "accommodation",
+        "transport_air", 
+        "transport_train",
+        "city_transport",
+        "meal",
+        "business_entertainment"
+    ]
+    
+    result = []
+    for exp_type in expense_types:
+        count = db.query(Invoice).filter(Invoice.expense_type == exp_type).count()
+        result.append({
+            "type": exp_type,
+            "count": count
+        })
+    
+    return result
+
+
 @router.post("/ocr/visualize")
 async def ocr_visualize(
     file: UploadFile = File(...),

@@ -10,8 +10,6 @@ import tracemalloc
 
 from backend.database import get_db, Invoice, AuditRecord, Employee
 from backend.models.schemas import AuditResult, AuditResultFull, ValidationItem
-from backend.services.ocr_service import get_ocr_service
-from backend.services.llm_service import get_llm_service
 from backend.services.duplicate_checker import get_duplicate_checker
 from backend.services.company_validator import get_company_validator
 from ml.risk_analyzer import risk_analyzer
@@ -23,6 +21,13 @@ from backend.rules.engine import (
 )
 from backend.config import settings
 from backend.logger_config import logger
+
+# 根据配置选择使用 vLLM 或 统一 VL 服务
+if settings.USE_VLLM:
+    from backend.services.vllm_service import get_vllm_service
+else:
+    # 使用统一的 VL 服务（OCR + LLM 共享模型，节省显存）
+    from backend.services.unified_vl_service import get_unified_vl_service
 
 
 def get_memory_usage():
@@ -37,8 +42,15 @@ def get_memory_usage():
 
 class AuditService:
     def __init__(self):
-        self.ocr_service = get_ocr_service()
-        self.llm_service = get_llm_service()
+        # 根据配置选择使用 vLLM 或 统一 VL 服务
+        if settings.USE_VLLM:
+            self.vl_service = get_vllm_service()
+            logger.info("[Audit] 使用 vLLM 加速服务")
+        else:
+            # 统一 VL 服务：OCR + LLM 共享模型，节省显存
+            self.vl_service = get_unified_vl_service()
+            logger.info("[Audit] 使用统一 VL 服务（模型共享）")
+        
         self.duplicate_checker = get_duplicate_checker()
         self.company_validator = get_company_validator()
         self.stamp_detector = get_stamp_detector()
@@ -81,21 +93,51 @@ class AuditService:
         ocr_confidence = 0.0
         ocr_time = 0
         ocr_mem_delta = 0
+        invoice_analysis = None  # 用于合并模式时保存分析结果
         
-        try:
-            ocr_start = time.time()
-            ocr_mem_before = get_memory_usage()
-            logger.info(f"[OCR] 开始处理: {invoice.file_path}")
-            ocr_result = self.ocr_service.process_invoice(invoice.file_path)
-            invoice_data = ocr_result['data']
-            ocr_confidence = ocr_result['confidence']
-            ocr_time = time.time() - ocr_start
-            ocr_mem_after = get_memory_usage()
-            ocr_mem_delta = ocr_mem_after['rss'] - ocr_mem_before['rss']
-            logger.info(f"[OCR] 完成 - 耗时: {ocr_time:.2f}秒, 内存变化: {ocr_mem_delta:+.1f}MB, 置信度: {ocr_confidence:.2f}")
-        except Exception as e:
-            logger.error(f"[OCR] 处理失败: {str(e)}")
-            invoice_data = {'error': str(e)}
+        # 根据配置选择处理模式
+        if settings.USE_COMBINED_OCR_LLM:
+            # ========== 合并模式：一次推理完成 OCR + 分析 ==========
+            try:
+                ocr_start = time.time()
+                ocr_mem_before = get_memory_usage()
+                logger.info(f"[合并处理] OCR+分析: {invoice.file_path}")
+                
+                # 使用合并方法
+                combined_result = self.vl_service.process_invoice_combined(invoice.file_path)
+                
+                ocr_result = combined_result['ocr']
+                invoice_analysis = combined_result['analysis']
+                
+                invoice_data = ocr_result['data']
+                ocr_confidence = ocr_result['confidence']
+                ocr_time = time.time() - ocr_start
+                ocr_mem_after = get_memory_usage()
+                ocr_mem_delta = ocr_mem_after['rss'] - ocr_mem_before['rss']
+                logger.info(f"[合并处理] 完成 - 耗时: {ocr_time:.2f}秒, 内存变化: {ocr_mem_delta:+.1f}MB")
+            except Exception as e:
+                logger.error(f"[合并处理] 失败: {str(e)}")
+                invoice_data = {'error': str(e)}
+                invoice_analysis = {'is_suspicious': False, 'authenticity_score': 0.5, 'suspicious_points': []}
+        else:
+            # ========== 分离模式：先 OCR 后分析 ==========
+            try:
+                ocr_start = time.time()
+                ocr_mem_before = get_memory_usage()
+                logger.info(f"[OCR] 开始处理: {invoice.file_path}")
+                
+                # 使用统一 VL 服务进行 OCR
+                ocr_result = self.vl_service.process_invoice(invoice.file_path)
+                
+                invoice_data = ocr_result['data']
+                ocr_confidence = ocr_result['confidence']
+                ocr_time = time.time() - ocr_start
+                ocr_mem_after = get_memory_usage()
+                ocr_mem_delta = ocr_mem_after['rss'] - ocr_mem_before['rss']
+                logger.info(f"[OCR] 完成 - 耗时: {ocr_time:.2f}秒, 内存变化: {ocr_mem_delta:+.1f}MB, 置信度: {ocr_confidence:.2f}")
+            except Exception as e:
+                logger.error(f"[OCR] 处理失败: {str(e)}")
+                invoice_data = {'error': str(e)}
         
         try:
             invoice.invoice_code = invoice_data.get('invoice_code')
@@ -135,6 +177,7 @@ class AuditService:
             logger.warning(f"Stamp detection failed: {str(e)}")
         
         duplicate_result = None
+        company_result = None
         if invoice.invoice_no and invoice.amount:
             try:
                 duplicate_result = self.duplicate_checker.check_duplicate(
@@ -241,31 +284,42 @@ class AuditService:
         except Exception as e:
             logger.warning(f"Similar invoice search failed: {str(e)}")
         
-        invoice_analysis = {}
+        # LLM 分析（合并模式下跳过，已在上一步完成）
         llm_time = 0
         llm_mem_delta = 0
-        try:
-            llm_start = time.time()
-            llm_mem_before = get_memory_usage()
-            logger.info("[LLM] 开始分析发票...")
-            invoice_analysis = self.llm_service.analyze_invoice_image(
-                invoice.file_path, 
-                invoice_data
-            )
-            llm_time = time.time() - llm_start
-            llm_mem_after = get_memory_usage()
-            llm_mem_delta = llm_mem_after['rss'] - llm_mem_before['rss']
-            logger.info(f"[LLM] 分析完成 - 耗时: {llm_time:.2f}秒, 内存变化: {llm_mem_delta:+.1f}MB")
-        except Exception as e:
-            logger.warning(f"[LLM] 分析失败: {str(e)}")
-            invoice_analysis = {'is_suspicious': False, 'authenticity_score': 0.5, 'suspicious_points': []}
+        if invoice_analysis is None:
+            # 分离模式：需要单独进行 LLM 分析
+            invoice_analysis = {}
+            try:
+                llm_start = time.time()
+                llm_mem_before = get_memory_usage()
+                logger.info("[LLM] 开始分析发票...")
+                
+                # 使用统一 VL 服务进行发票分析
+                invoice_analysis = self.vl_service.analyze_invoice_image(
+                    invoice.file_path, 
+                    invoice_data
+                )
+                
+                llm_time = time.time() - llm_start
+                llm_mem_after = get_memory_usage()
+                llm_mem_delta = llm_mem_after['rss'] - llm_mem_before['rss']
+                logger.info(f"[LLM] 分析完成 - 耗时: {llm_time:.2f}秒, 内存变化: {llm_mem_delta:+.1f}MB")
+            except Exception as e:
+                logger.warning(f"[LLM] 分析失败: {str(e)}")
+                invoice_analysis = {'is_suspicious': False, 'authenticity_score': 0.5, 'suspicious_points': []}
+        else:
+            # 合并模式：分析结果已在 OCR 步骤中获取
+            logger.info(f"[LLM] 已在合并模式中完成分析，跳过单独分析")
         
         signature_score = None
         if invoice.employee_id:
             employee = db.query(Employee).filter(Employee.id == invoice.employee_id).first()
             if employee and employee.signature_path and os.path.exists(employee.signature_path):
                 logger.info("Comparing signatures...")
-                signature_result = self.llm_service.compare_signatures(
+                
+                # 使用统一 VL 服务进行签名比对
+                signature_result = self.vl_service.compare_signatures(
                     employee.signature_path,
                     invoice.file_path
                 )
@@ -505,8 +559,13 @@ class AuditService:
         )
 
 
-audit_service = AuditService()
+# 延迟初始化，避免模块导入时触发 vLLM 多进程问题
+_audit_service = None
 
 
 def get_audit_service() -> AuditService:
-    return audit_service
+    """获取审核服务实例（延迟初始化）"""
+    global _audit_service
+    if _audit_service is None:
+        _audit_service = AuditService()
+    return _audit_service

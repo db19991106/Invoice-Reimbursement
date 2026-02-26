@@ -6,6 +6,9 @@ export FLAGS_enable_onednn=0
 export FLAGS_use_mkldnn=0
 export PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
 
+# vLLM 多进程设置
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+
 echo "=== 财务报销智能审核系统启动脚本 ==="
 
 # 1. 安装后端依赖

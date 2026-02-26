@@ -241,7 +241,9 @@ const resetPasswordRules = {
 const fetchAuditors = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/auditors')
+    const res = await axios.get('/api/auditors', {
+      params: { auditor_id: auditorId }
+    })
     let data = res.data
     
     // 前端过滤
@@ -313,11 +315,12 @@ const submitForm = async () => {
         name: auditorForm.name,
         email: auditorForm.email,
         role: auditorForm.role,
-        is_active: auditorForm.is_active
+        is_active: auditorForm.is_active,
+        auditor_id: auditorId
       })
       ElMessage.success('更新成功')
     } else {
-      await axios.post('/api/auditors', auditorForm)
+      await axios.post('/api/auditors', { ...auditorForm, auditor_id: auditorId })
       ElMessage.success('添加成功')
     }
     dialogVisible.value = false
@@ -335,7 +338,8 @@ const resetPassword = async () => {
 
   try {
     await axios.post(`/api/auditors/${resetPasswordForm.auditorId}/reset-password`, {
-      new_password: resetPasswordForm.newPassword
+      new_password: resetPasswordForm.newPassword,
+      auditor_id: auditorId
     })
     ElMessage.success('密码重置成功')
     resetPasswordVisible.value = false
@@ -347,7 +351,8 @@ const resetPassword = async () => {
 const toggleAuditorStatus = async (auditor: any) => {
   try {
     await axios.put(`/api/auditors/${auditor.id}`, {
-      is_active: auditor.is_active
+      is_active: auditor.is_active,
+      auditor_id: auditorId
     })
     ElMessage.success(auditor.is_active ? '已启用' : '已禁用')
   } catch (e: any) {
@@ -360,7 +365,9 @@ const deleteAuditor = async (auditor: any) => {
   try {
     await ElMessageBox.confirm(`确定要删除审核员"${auditor.name}"吗？`, '确认删除', { type: 'warning' })
     
-    await axios.delete(`/api/auditors/${auditor.id}`)
+    await axios.delete(`/api/auditors/${auditor.id}`, {
+      params: { auditor_id: auditorId }
+    })
     ElMessage.success('删除成功')
     fetchAuditors()
   } catch (e: any) {

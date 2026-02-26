@@ -140,6 +140,8 @@ def get_my_invoices(
     db: Session = Depends(get_db)
 ):
     """获取当前用户上传的发票列表"""
+    from backend.models.schemas import AuditRecordResponse
+    
     user = get_current_user(user_id, db)
     
     query = db.query(Invoice).filter(Invoice.user_id == user.id)
@@ -149,7 +151,70 @@ def get_my_invoices(
     
     invoices = query.order_by(Invoice.created_at.desc()).offset(skip).limit(limit).all()
     
-    return invoices
+    # 构建返回数据，解析 JSON 字段
+    result = []
+    for invoice in invoices:
+        invoice_data = {
+            "id": invoice.id,
+            "employee_id": invoice.employee_id,
+            "user_id": invoice.user_id,
+            "file_path": invoice.file_path,
+            "invoice_code": invoice.invoice_code,
+            "invoice_no": invoice.invoice_no,
+            "amount": invoice.amount,
+            "tax_amount": invoice.tax_amount,
+            "total_amount": invoice.total_amount,
+            "date": invoice.date,
+            "seller_name": invoice.seller_name,
+            "seller_tax_id": invoice.seller_tax_id,
+            "buyer_name": invoice.buyer_name,
+            "buyer_tax_id": invoice.buyer_tax_id,
+            "status": invoice.status,
+            "channel": invoice.channel,
+            "expense_type": invoice.expense_type,
+            "destination_city": invoice.destination_city,
+            "person_count": invoice.person_count,
+            "trip_days": invoice.trip_days,
+            "created_at": invoice.created_at,
+            "audit_record": None
+        }
+        
+        if invoice.audit_record:
+            audit = invoice.audit_record
+            risk_reasons = []
+            if audit.risk_reasons:
+                try:
+                    risk_reasons = json.loads(audit.risk_reasons)
+                except:
+                    risk_reasons = []
+            
+            validation_items = []
+            if audit.validation_items:
+                try:
+                    validation_items = json.loads(audit.validation_items)
+                except:
+                    validation_items = []
+            
+            invoice_data["audit_record"] = {
+                "id": audit.id,
+                "invoice_id": audit.invoice_id,
+                "signature_score": audit.signature_score,
+                "ocr_confidence": audit.ocr_confidence,
+                "risk_level": audit.risk_level,
+                "risk_score": audit.risk_score,
+                "risk_reasons": risk_reasons,
+                "decision": audit.decision,
+                "channel": audit.channel,
+                "validation_items": validation_items,
+                "stamp_detected": audit.stamp_detected == "true" if audit.stamp_detected else None,
+                "duplicate_checked": audit.duplicate_checked,
+                "company_matched": audit.company_matched,
+                "reviewed_at": audit.reviewed_at
+            }
+        
+        result.append(InvoiceResponse(**invoice_data))
+    
+    return result
 
 
 @router.get("/user/invoices/{invoice_id}", response_model=InvoiceResponse)

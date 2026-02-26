@@ -138,7 +138,7 @@
         <el-form-item label="签名文件">
           <el-upload
             class="signature-uploader"
-            :action="`/api/upload/employees/${employeeForm.id || 'new'}/signature`"
+            :action="`/api/employees/${employeeForm.id || 'new'}/signature`"
             :show-file-list="false"
             :on-success="handleSignatureSuccess"
             :before-upload="beforeSignatureUpload"
@@ -240,7 +240,7 @@ const formRules = {
 const fetchEmployees = async () => {
   loading.value = true
   try {
-    let url = `/api/upload/employees?skip=${(currentPage.value - 1) * pageSize.value}&limit=${pageSize.value}`
+    let url = `/api/employees?skip=${(currentPage.value - 1) * pageSize.value}&limit=${pageSize.value}`
     
     const res = await axios.get(url)
     let data = res.data
@@ -310,10 +310,10 @@ const submitForm = async () => {
   submitLoading.value = true
   try {
     if (isEdit.value) {
-      await axios.put(`/api/upload/employees/${employeeForm.id}`, employeeForm)
+      await axios.put(`/api/employees/${employeeForm.id}`, employeeForm)
       ElMessage.success('更新成功')
     } else {
-      await axios.post('/api/upload/employees', employeeForm)
+      await axios.post('/api/employees', employeeForm)
       ElMessage.success('添加成功')
     }
     dialogVisible.value = false
@@ -329,7 +329,7 @@ const deleteEmployee = async (employee: any) => {
   try {
     await ElMessageBox.confirm(`确定要删除员工"${employee.name}"吗？`, '确认删除', { type: 'warning' })
     
-    await axios.delete(`/api/upload/employees/${employee.id}`)
+    await axios.delete(`/api/employees/${employee.id}`)
     ElMessage.success('删除成功')
     fetchEmployees()
   } catch (e: any) {
@@ -344,7 +344,7 @@ const batchDelete = async () => {
     await ElMessageBox.confirm(`确定要删除选中的 ${selectedEmployees.value.length} 名员工吗？`, '确认删除', { type: 'warning' })
     
     for (const emp of selectedEmployees.value) {
-      await axios.delete(`/api/upload/employees/${emp.id}`)
+      await axios.delete(`/api/employees/${emp.id}`)
     }
     ElMessage.success('批量删除成功')
     fetchEmployees()

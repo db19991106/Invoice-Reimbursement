@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
@@ -15,26 +16,28 @@ formatter = logging.Formatter(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# 文件处理器
+# 文件处理器 - 禁用缓冲，立即写入
 file_handler = RotatingFileHandler(
     LOG_FILE,
     maxBytes=10*1024*1024,  # 10MB
     backupCount=5,
-    encoding='utf-8'
+    encoding='utf-8',
+    delay=False  # 立即打开文件
 )
 file_handler.setFormatter(formatter)
 file_handler.setLevel(logging.INFO)
 
-# 控制台处理器
-console_handler = logging.StreamHandler()
+# 控制台处理器 - 禁用缓冲
+console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(formatter)
 console_handler.setLevel(logging.INFO)
+console_handler.stream = os.fdopen(console_handler.stream.fileno(), 'w', buffering=1)  # 行缓冲
 
 # 配置根日志
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[file_handler, console_handler]
-)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.addHandler(file_handler)
+root_logger.addHandler(console_handler)
 
 # 应用日志器
 logger = logging.getLogger("财务审核系统")

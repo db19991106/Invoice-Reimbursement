@@ -123,7 +123,11 @@ def list_invoices(
     db: Session = Depends(get_db)
 ):
     """获取发票列表（审核人权限）"""
+    from backend.models.schemas import AuditRecordResponse
+    
     get_current_auditor(auditor_id, db)
+    
+    logger.info(f"Fetching invoices: skip={skip}, limit={limit}, status={status}")
     
     query = db.query(Invoice)
     
@@ -132,7 +136,77 @@ def list_invoices(
     
     invoices = query.order_by(Invoice.created_at.desc()).offset(skip).limit(limit).all()
     
-    return invoices
+    # 构建返回数据，解析 JSON 字段
+    result = []
+    for invoice in invoices:
+        invoice_data = {
+            "id": invoice.id,
+            "employee_id": invoice.employee_id,
+            "user_id": invoice.user_id,
+            "file_path": invoice.file_path,
+            "invoice_code": invoice.invoice_code,
+            "invoice_no": invoice.invoice_no,
+            "amount": invoice.amount,
+            "tax_amount": invoice.tax_amount,
+            "total_amount": invoice.total_amount,
+            "date": invoice.date,
+            "seller_name": invoice.seller_name,
+            "seller_tax_id": invoice.seller_tax_id,
+            "buyer_name": invoice.buyer_name,
+            "buyer_tax_id": invoice.buyer_tax_id,
+            "status": invoice.status,
+            "channel": invoice.channel,
+            "expense_type": invoice.expense_type,
+            "destination_city": invoice.destination_city,
+            "person_count": invoice.person_count,
+            "trip_days": invoice.trip_days,
+            "created_at": invoice.created_at,
+            "audit_record": None
+        }
+        
+        if invoice.audit_record:
+            audit = invoice.audit_record
+            # 解析 JSON 字段
+            risk_reasons = []
+            if audit.risk_reasons:
+                try:
+                    risk_reasons = json.loads(audit.risk_reasons)
+                    logger.info(f"[DEBUG] Invoice {invoice.id}: Parsed risk_reasons = {risk_reasons}, type = {type(risk_reasons)}")
+                except Exception as e:
+                    logger.error(f"[DEBUG] Invoice {invoice.id}: Failed to parse risk_reasons: {e}")
+                    risk_reasons = []
+            
+            validation_items = []
+            if audit.validation_items:
+                try:
+                    validation_items = json.loads(audit.validation_items)
+                    logger.info(f"[DEBUG] Invoice {invoice.id}: Parsed validation_items, type = {type(validation_items)}")
+                except Exception as e:
+                    logger.error(f"[DEBUG] Invoice {invoice.id}: Failed to parse validation_items: {e}")
+                    validation_items = []
+            
+            invoice_data["audit_record"] = {
+                "id": audit.id,
+                "invoice_id": audit.invoice_id,
+                "signature_score": audit.signature_score,
+                "ocr_confidence": audit.ocr_confidence,
+                "risk_level": audit.risk_level,
+                "risk_score": audit.risk_score,
+                "risk_reasons": risk_reasons,
+                "decision": audit.decision,
+                "channel": audit.channel,
+                "validation_items": validation_items,
+                "stamp_detected": audit.stamp_detected == "true" if audit.stamp_detected else None,
+                "duplicate_checked": audit.duplicate_checked,
+                "company_matched": audit.company_matched,
+                "reviewed_at": audit.reviewed_at
+            }
+        
+        logger.info(f"[DEBUG] Creating InvoiceResponse for invoice {invoice.id}")
+        result.append(InvoiceResponse(**invoice_data))
+    
+    logger.info(f"[DEBUG] Returning {len(result)} invoices")
+    return result
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceResponse)
@@ -142,13 +216,75 @@ def get_invoice(
     db: Session = Depends(get_db)
 ):
     """获取发票详情"""
+    from backend.models.schemas import AuditRecordResponse
+    
     get_current_auditor(auditor_id, db)
     
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="发票不存在")
     
-    return invoice
+    # 构建返回数据，解析 JSON 字段
+    invoice_data = {
+        "id": invoice.id,
+        "employee_id": invoice.employee_id,
+        "user_id": invoice.user_id,
+        "file_path": invoice.file_path,
+        "invoice_code": invoice.invoice_code,
+        "invoice_no": invoice.invoice_no,
+        "amount": invoice.amount,
+        "tax_amount": invoice.tax_amount,
+        "total_amount": invoice.total_amount,
+        "date": invoice.date,
+        "seller_name": invoice.seller_name,
+        "seller_tax_id": invoice.seller_tax_id,
+        "buyer_name": invoice.buyer_name,
+        "buyer_tax_id": invoice.buyer_tax_id,
+        "status": invoice.status,
+        "channel": invoice.channel,
+        "expense_type": invoice.expense_type,
+        "destination_city": invoice.destination_city,
+        "person_count": invoice.person_count,
+        "trip_days": invoice.trip_days,
+        "created_at": invoice.created_at,
+        "audit_record": None
+    }
+    
+    if invoice.audit_record:
+        audit = invoice.audit_record
+        # 解析 JSON 字段
+        risk_reasons = []
+        if audit.risk_reasons:
+            try:
+                risk_reasons = json.loads(audit.risk_reasons)
+            except:
+                risk_reasons = []
+        
+        validation_items = []
+        if audit.validation_items:
+            try:
+                validation_items = json.loads(audit.validation_items)
+            except:
+                validation_items = []
+        
+        invoice_data["audit_record"] = {
+            "id": audit.id,
+            "invoice_id": audit.invoice_id,
+            "signature_score": audit.signature_score,
+            "ocr_confidence": audit.ocr_confidence,
+            "risk_level": audit.risk_level,
+            "risk_score": audit.risk_score,
+            "risk_reasons": risk_reasons,
+            "decision": audit.decision,
+            "channel": audit.channel,
+            "validation_items": validation_items,
+            "stamp_detected": audit.stamp_detected == "true" if audit.stamp_detected else None,
+            "duplicate_checked": audit.duplicate_checked,
+            "company_matched": audit.company_matched,
+            "reviewed_at": audit.reviewed_at
+        }
+    
+    return InvoiceResponse(**invoice_data)
 
 
 @router.get("/invoices/{invoice_id}/audit", response_model=AuditResultFull)
@@ -201,6 +337,8 @@ def update_invoice(
     db: Session = Depends(get_db)
 ):
     """修改发票信息（审核人权限）"""
+    from backend.models.schemas import AuditRecordResponse
+    
     auditor = get_current_auditor(auditor_id, db)
     
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
@@ -290,7 +428,66 @@ def update_invoice(
     db.commit()
     db.refresh(invoice)
     
-    return invoice
+    # 构建返回数据
+    invoice_data = {
+        "id": invoice.id,
+        "employee_id": invoice.employee_id,
+        "user_id": invoice.user_id,
+        "file_path": invoice.file_path,
+        "invoice_code": invoice.invoice_code,
+        "invoice_no": invoice.invoice_no,
+        "amount": invoice.amount,
+        "tax_amount": invoice.tax_amount,
+        "total_amount": invoice.total_amount,
+        "date": invoice.date,
+        "seller_name": invoice.seller_name,
+        "seller_tax_id": invoice.seller_tax_id,
+        "buyer_name": invoice.buyer_name,
+        "buyer_tax_id": invoice.buyer_tax_id,
+        "status": invoice.status,
+        "channel": invoice.channel,
+        "expense_type": invoice.expense_type,
+        "destination_city": invoice.destination_city,
+        "person_count": invoice.person_count,
+        "trip_days": invoice.trip_days,
+        "created_at": invoice.created_at,
+        "audit_record": None
+    }
+    
+    if invoice.audit_record:
+        audit = invoice.audit_record
+        risk_reasons = []
+        if audit.risk_reasons:
+            try:
+                risk_reasons = json.loads(audit.risk_reasons)
+            except:
+                risk_reasons = []
+        
+        validation_items = []
+        if audit.validation_items:
+            try:
+                validation_items = json.loads(audit.validation_items)
+            except:
+                validation_items = []
+        
+        invoice_data["audit_record"] = {
+            "id": audit.id,
+            "invoice_id": audit.invoice_id,
+            "signature_score": audit.signature_score,
+            "ocr_confidence": audit.ocr_confidence,
+            "risk_level": audit.risk_level,
+            "risk_score": audit.risk_score,
+            "risk_reasons": risk_reasons,
+            "decision": audit.decision,
+            "channel": audit.channel,
+            "validation_items": validation_items,
+            "stamp_detected": audit.stamp_detected == "true" if audit.stamp_detected else None,
+            "duplicate_checked": audit.duplicate_checked,
+            "company_matched": audit.company_matched,
+            "reviewed_at": audit.reviewed_at
+        }
+    
+    return InvoiceResponse(**invoice_data)
 
 
 @router.post("/invoices/{invoice_id}/approve")
@@ -476,13 +673,80 @@ def get_user_invoices(
     db: Session = Depends(get_db)
 ):
     """获取指定用户上传的发票列表（管理员权限）"""
+    from backend.models.schemas import AuditRecordResponse
+    
     current = get_current_auditor(auditor_id, db)
     
     if current.role != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
     
     invoices = db.query(Invoice).filter(Invoice.user_id == user_id).order_by(Invoice.created_at.desc()).all()
-    return invoices
+    
+    # 构建返回数据，解析 JSON 字段
+    result = []
+    for invoice in invoices:
+        invoice_data = {
+            "id": invoice.id,
+            "employee_id": invoice.employee_id,
+            "user_id": invoice.user_id,
+            "file_path": invoice.file_path,
+            "invoice_code": invoice.invoice_code,
+            "invoice_no": invoice.invoice_no,
+            "amount": invoice.amount,
+            "tax_amount": invoice.tax_amount,
+            "total_amount": invoice.total_amount,
+            "date": invoice.date,
+            "seller_name": invoice.seller_name,
+            "seller_tax_id": invoice.seller_tax_id,
+            "buyer_name": invoice.buyer_name,
+            "buyer_tax_id": invoice.buyer_tax_id,
+            "status": invoice.status,
+            "channel": invoice.channel,
+            "expense_type": invoice.expense_type,
+            "destination_city": invoice.destination_city,
+            "person_count": invoice.person_count,
+            "trip_days": invoice.trip_days,
+            "created_at": invoice.created_at,
+            "audit_record": None
+        }
+        
+        if invoice.audit_record:
+            audit = invoice.audit_record
+            # 解析 JSON 字段
+            risk_reasons = []
+            if audit.risk_reasons:
+                try:
+                    risk_reasons = json.loads(audit.risk_reasons)
+                except:
+                    risk_reasons = []
+            
+            validation_items = []
+            if audit.validation_items:
+                try:
+                    validation_items = json.loads(audit.validation_items)
+                except:
+                    validation_items = []
+            
+            invoice_data["audit_record"] = {
+                "id": audit.id,
+                "invoice_id": audit.invoice_id,
+                "signature_score": audit.signature_score,
+                "ocr_confidence": audit.ocr_confidence,
+                "risk_level": audit.risk_level,
+                "risk_score": audit.risk_score,
+                "risk_reasons": risk_reasons,
+                "decision": audit.decision,
+                "channel": audit.channel,
+                "validation_items": validation_items,
+                "stamp_detected": audit.stamp_detected == "true" if audit.stamp_detected else None,
+                "duplicate_checked": audit.duplicate_checked,
+                "company_matched": audit.company_matched,
+                "reviewed_at": audit.reviewed_at
+            }
+        
+        result.append(InvoiceResponse(**invoice_data))
+    
+    return result
 
 
 @router.delete("/invoices/{invoice_id}")

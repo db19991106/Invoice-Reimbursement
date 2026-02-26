@@ -9,7 +9,18 @@ os.environ['FLAGS_enable_onednn'] = '0'
 os.environ['FLAGS_use_mkldnn'] = '0'
 os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = 'True'
 
+# vLLM 多进程设置 - 必须在导入其他模块前设置
+os.environ['VLLM_WORKER_MULTIPROC_METHOD'] = 'spawn'
+
 import logging
+import multiprocessing
+
+# 设置多进程启动方式为 spawn（vLLM 要求）
+try:
+    multiprocessing.set_start_method('spawn', force=True)
+except RuntimeError:
+    pass  # 已经设置过
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -87,6 +98,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
+        reload=False,  # 禁用热重载以避免开发时不必要的重启
         log_config=None
     )

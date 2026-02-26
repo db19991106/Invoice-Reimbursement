@@ -23,6 +23,14 @@ class Settings:
     OCR_LANG: str = "ch"
     OCR_USE_GPU: bool = True
     
+    # vLLM 配置
+    # 设为 True 启用 vLLM 加速（推理速度更快，加载时间较长）
+    # 设为 False 使用 Transformers（加载快，推理较慢）
+    USE_VLLM: bool = os.getenv("USE_VLLM", "true").lower() == "true"
+    
+    # 合并 OCR + LLM 分析（一次推理完成两项任务，加速 20-30%）
+    USE_COMBINED_OCR_LLM: bool = os.getenv("USE_COMBINED_OCR_LLM", "true").lower() == "true"
+    
     RISK_THRESHOLDS: dict = {
         "low": 0.3,
         "medium": 0.6,

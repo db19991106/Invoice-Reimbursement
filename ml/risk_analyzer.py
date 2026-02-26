@@ -28,19 +28,52 @@ class RiskAnalyzer:
             return
         try:
             print(f"Loading embedding model from: {self.model_path}")
-            self.embedding_model = SentenceTransformer(self.model_path)
+            # 强制使用 CPU，为 vLLM 腾出 GPU 显存
+            self.embedding_model = SentenceTransformer(self.model_path, device='cpu')
             self._initialized = True
-            print("Embedding model loaded successfully (BGE-large-zh-v1.5)")
+            print("Embedding model loaded successfully (BGE-large-zh-v1.5) on CPU")
         except Exception as e:
             print(f"Failed to load embedding model: {e}")
             # 回退到默认模型
             try:
-                self.embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+                self.embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2', device='cpu')
                 self.embedding_dim = 384
                 self._initialized = True
-                print("Fallback to default embedding model")
+                print("Fallback to default embedding model on CPU")
             except Exception as e2:
                 print(f"Failed to load fallback model: {e2}")
+    
+    def _parse_date(self, date_str: str) -> Optional[tuple]:
+        """解析多种日期格式，返回 (year, month, day) 元组
+        
+        支持格式：
+        - YYYY-MM-DD
+        - YYYY/MM/DD
+        - YYYY年MM月DD日
+        - YYYYMMDD
+        """
+        import re
+        if not date_str:
+            return None
+        
+        date_str = str(date_str).strip()
+        
+        # 格式1: YYYY年MM月DD日
+        match = re.match(r'(\d{4})年(\d{1,2})月(\d{1,2})日', date_str)
+        if match:
+            return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        
+        # 格式2: YYYY-MM-DD 或 YYYY/MM/DD
+        match = re.match(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', date_str)
+        if match:
+            return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        
+        # 格式3: YYYYMMDD
+        match = re.match(r'(\d{4})(\d{2})(\d{2})', date_str)
+        if match:
+            return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        
+        return None
     
     def create_index(self):
         self.init_embedding_model()
@@ -136,21 +169,23 @@ class RiskAnalyzer:
         
         date = invoice_data.get('date')
         if date:
-            try:
-                year, month, day = map(int, date.split('-'))
+            parsed_date = self._parse_date(date)
+            if parsed_date:
+                year, month, day = parsed_date
                 if month > 12 or month < 1 or day > 31 or day < 1:
                     risk_score += 0.2
                     risk_factors.append("发票日期格式异常")
                 if year < 2020 or year > 2030:
                     risk_score += 0.15
                     risk_factors.append("发票年份异常")
-            except:
+            else:
                 risk_score += 0.1
                 risk_factors.append("无法解析发票日期")
         
         seller_tax_id = invoice_data.get('seller_tax_id')
         if seller_tax_id:
-            if len(seller_tax_id) not in [15, 18, 20]:
+            # 纳税人识别号：15位(老版)、17位(部分统一信用代码)、18位(统一信用代码)、20位
+            if len(seller_tax_id) not in [15, 17, 18, 20]:
                 risk_score += 0.15
                 risk_factors.append("纳税人识别号格式异常")
         
